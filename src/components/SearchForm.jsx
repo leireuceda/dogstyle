@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { geocodeLocation, searchAnimalBoarding, normalizeResults } from '../services/osmService'
 
 const STEPS = [
   { id: 1, title: 'Ubicación' },
@@ -25,6 +26,9 @@ export default function SearchForm({ onClose }) {
   })
   const [errors, setErrors] = useState({})
   const [submitted, setSubmitted] = useState(false)
+  const [searchLoading, setSearchLoading] = useState(false)
+  const [searchResults, setSearchResults] = useState([])
+  const [searchError, setSearchError] = useState(null)
 
   const isLastStep = currentStep === STEPS.length
   const isFirstStep = currentStep === 1
@@ -66,18 +70,107 @@ export default function SearchForm({ onClose }) {
   const goNext = () => { if (validateStep(currentStep)) setCurrentStep(p => p + 1) }
   const goBack = () => { setCurrentStep(p => p - 1) }
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault()
-    if (validateStep(currentStep)) setSubmitted(true)
+    if (!validateStep(currentStep)) return
+
+    setSearchLoading(true)
+    setSearchError(null)
+
+    try {
+      const query = formData.location.ciudad || formData.location.codigoPostal
+      if (!query) {
+        setSearchError('Es necesario indicar una localidad o código postal')
+        setSearchLoading(false)
+        return
+      }
+
+      // 1. Geocodificar la localidad con Nominatim
+      const coords = await geocodeLocation(query)
+      if (!coords) {
+        setSearchError('No se pudo encontrar la localidad indicada. Intenta con otro nombre o código postal.')
+        setSearchLoading(false)
+        return
+      }
+
+      // 2. Buscar residencias caninas con Overpass API
+      const rawResults = await searchAnimalBoarding(coords.lat, coords.lon, formData.location.radio)
+      const normalized = normalizeResults(rawResults)
+
+      setSearchResults(normalized)
+      setSubmitted(true)
+    } catch (error) {
+      console.error('Error en búsqueda:', error)
+      setSearchError('Ocurrió un error al buscar residencias. Inténtalo de nuevo más tarde.')
+    } finally {
+      setSearchLoading(false)
+    }
   }
 
   if (submitted) {
+    if (searchLoading) {
+      return (
+        <section className="search-form-success">
+          <div className="success-card">
+            <h2>Buscando residencias caninas...</h2>
+            <p>Consultando OpenStreetMap para encontrar establecimientos reales cerca de ti.</p>
+            <div className="search-loading">Cargando…</div>
+          </div>
+        </section>
+      )
+    }
+
+    if (searchError) {
+      return (
+        <section className="search-form-success">
+          <div className="success-card">
+            <h2>No se pudieron encontrar resultados</h2>
+            <p>{searchError}</p>
+            <button className="btn-primary" onClick={() => { setSubmitted(false); setSearchError(null); setCurrentStep(1) }}>Volver a intentar</button>
+          </div>
+        </section>
+      )
+    }
+
+    if (searchResults.length === 0) {
+      return (
+        <section className="search-form-success">
+          <div className="success-card">
+            <h2>No se encontraron residencias caninas</h2>
+            <p>No se encontraron establecimientos de tipo <em>animal_boarding</em> en OpenStreetMap dentro del radio seleccionado para esta localidad.</p>
+            <p>Esto puede deberse a que aún no hay residencias caninas mapeadas en OpenStreetMap para esa zona.</p>
+            <button className="btn-primary" onClick={() => { setSubmitted(false); setCurrentStep(1) }}>Volver a intentar</button>
+          </div>
+        </section>
+      )
+    }
+
     return (
       <section className="search-form-success">
         <div className="success-card">
-          <h2>¡Búsqueda enviada!</h2>
-          <p>Hemos recibido tus datos. En breve te mostraremos las residencias caninas más compatibles.</p>
-          <button className="btn-primary" onClick={() => { setSubmitted(false); setCurrentStep(1); onClose() }}>Volver al inicio</button>
+          <h2>Residencias caninas encontradas</h2>
+          <p>Se encontraron {searchResults.length} establecimiento(s) real(es) en OpenStreetMap dentro de {formData.location.radio} km.</p>
+          <div className="results-list">
+            {searchResults.map((r) => (
+              <div key={r.id} className="result-card">
+                <div className="result-header">
+                  <h3>{r.name}</h3>
+                  <span className="result-source">{r.source}</span>
+                </div>
+                <p className="result-address">📍 {r.address}</p>
+                <p className="result-phone">📞 {r.phone}</p>
+                <p className="result-website">🌐 {r.website}</p>
+                <p className="result-animals">🐾 Animales: {r.animals.length > 0 ? r.animals.join(', ') : 'No especificado'}</p>
+                {r.hasCoordinates ? (
+                  <p className="result-coords">🗺️ Coordenadas: {r.lat.toFixed(4)}, {r.lon.toFixed(4)} (listas para mapa)</p>
+                ) : (
+                  <p className="result-coords">🗺️ Coordenadas: No disponibles</p>
+                )}
+                <p className="result-osm">ID OSM: {r.osmType}/{r.osmId}</p>
+              </div>
+            ))}
+          </div>
+          <button className="btn-primary" onClick={() => { setSubmitted(false); setCurrentStep(1); setSearchResults([]) }}>Volver al inicio</button>
         </div>
       </section>
     )
