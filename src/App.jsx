@@ -2,9 +2,11 @@ import { useState } from 'react'
 import heroImg from './assets/hero.png'
 import reactLogo from './assets/react.svg'
 import './index.css'
+import SearchForm from './components/SearchForm'
 
 function App() {
   const [activeSection, setActiveSection] = useState('hero')
+  const [showSearchForm, setShowSearchForm] = useState(false)
 
   return (
     <>
@@ -40,7 +42,7 @@ function App() {
               Sobre nosotros
             </button>
           </nav>
-          <button className="btn-primary">Encontrar su residencia</button>
+          <button className="btn-primary" onClick={() => setShowSearchForm(true)}>Encontrar su residencia</button>
         </div>
       </header>
 
@@ -59,7 +61,7 @@ function App() {
               que se adapten a las necesidades de tu perro. Descubre espacios acogedores,
               seguros y diseñados especialmente para mascotas.
             </p>
-            <button className="btn-primary">Encuentra su residencia</button>
+            <button className="btn-primary" onClick={() => setShowSearchForm(true)}>Encuentra su residencia</button>
           </div>
         </div>
       </section>
@@ -110,7 +112,7 @@ function App() {
       <section id="cta" className="cta">
         <h2 className="section-title">Listo para comenzar?</h2>
         <p>Explora nuestras residencias caninas y encuentra el lugar perfecto para tu mejor amigo.</p>
-        <button className="btn-primary">Comenzar búsqueda</button>
+        <button className="btn-primary" onClick={() => setShowSearchForm(true)}>Comenzar búsqueda</button>
       </section>
 
       {/* ========== FOOTER ========== */}
@@ -127,6 +129,7 @@ function App() {
           </div>
         </div>
       </footer>
+{showSearchForm && <SearchForm onClose={() => setShowSearchForm(false)} />}
     </>
   )
 }

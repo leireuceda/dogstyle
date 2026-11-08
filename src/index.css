@@ -313,3 +313,355 @@ code {
 #social .button-icon {
   filter: invert(1) brightness(2);
 }
+
+/* ========== FORMULARIO DE BÚSQUEDA DOGSTYLE ========== */
+.search-form-overlay {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(45, 74, 49, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 24px;
+  animation: fadeIn 0.3s ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; } to { opacity: 1; }
+}
+
+.search-form-container {
+  background: var(--off-white);
+  border-radius: 16px;
+  max-width: 600px;
+  width: 100%;
+  max-height: 90vh;
+  overflow-y: auto;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15);
+  animation: slideUp 0.4s ease;
+}
+
+@keyframes slideUp {
+  from { transform: translateY(30px); opacity: 0; } to { transform: translateY(0); opacity: 1; }
+}
+
+.search-form-close {
+  position: absolute;
+  top: 16px; right: 16px;
+  background: none;
+  border: none;
+  font-size: 28px;
+  cursor: pointer;
+  color: var(--text-h);
+  line-height: 1;
+  padding: 4px;
+}
+
+.search-form-close:hover {
+  color: var(--green-dark);
+}
+
+.search-form-header {
+  text-align: center;
+  padding: 32px 24px 24px;
+}
+
+.search-form-header h2 {
+  font-size: 28px;
+  margin: 0 0 8px;
+  color: var(--green-dark);
+}
+
+.search-form-header p {
+  color: #666;
+  font-size: 15px;
+  margin: 0;
+}
+
+.search-form-progress {
+  padding: 0 24px 24px;
+}
+
+.progress-bar {
+  height: 6px;
+  background: var(--border);
+  border-radius: 3px;
+  margin-bottom: 16px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background: var(--green-dark);
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+
+.progress-steps {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+}
+
+.progress-step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  color: #999;
+}
+
+.progress-step.active {
+  color: var(--green-dark);
+  font-weight: 600;
+}
+
+.progress-step.completed {
+  color: var(--green-sage);
+}
+
+.step-number {
+  width: 24px;
+  height: 24px;
+  background: var(--beige-warm);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.progress-step.active .step-number {
+  background: var(--green-dark);
+  color: var(--off-white);
+}
+
+.progress-step.completed .step-number {
+  background: var(--green-sage);
+  color: var(--off-white);
+}
+
+.search-form-content {
+  padding: 0 24px 24px;
+}
+
+.form-step h3 {
+  font-size: 20px;
+  color: var(--green-dark);
+  margin: 0 0 20px;
+}
+
+.form-group {
+  margin-bottom: 16px;
+}
+
+.form-group label {
+  display: block;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-h);
+  margin-bottom: 6px;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 16px;
+}
+
+.form-group input,
+.form-group select,
+.form-group textarea {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--off-white);
+  font-size: 15px;
+  font-family: inherit;
+  box-sizing: border-box;
+}
+
+.form-group input:focus,
+.form-group select:focus,
+.form-group textarea:focus {
+  outline: none;
+  border-color: var(--green-dark);
+}
+
+.form-group textarea {
+  resize: vertical;
+  min-height: 80px;
+}
+
+.radio-group {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.radio-btn {
+  flex: 1;
+  min-width: 70px;
+  padding: 10px 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--off-white);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.radio-btn:hover {
+  border-color: var(--green-dark);
+}
+
+.radio-btn.active {
+  background: var(--green-dark);
+  color: var(--off-white);
+  border-color: var(--green-dark);
+}
+
+.checkbox-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+}
+
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  color: var(--text-h);
+  cursor: pointer;
+}
+
+.checkbox-label input {
+  width: auto;
+  margin: 0;
+}
+
+.step-hint {
+  font-size: 13px;
+  color: #888;
+  margin: 0 0 16px;
+}
+
+.summary-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 16px;
+}
+
+.summary-card {
+  background: var(--beige-warm);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px;
+}
+
+.summary-card h4 {
+  margin: 0 0 12px;
+  font-size: 15px;
+  color: var(--green-dark);
+}
+
+.summary-card p {
+  margin: 4px 0;
+  font-size: 14px;
+  color: #555;
+}
+
+.search-form-actions {
+  display: flex;
+  gap: 12px;
+  padding: 24px;
+  border-top: 1px solid var(--border);
+  justify-content: space-between;
+}
+
+.btn-secondary {
+  background: var(--beige-warm);
+  color: var(--text-h);
+  border: 1px solid var(--border);
+  padding: 10px 20px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 15px;
+  font-weight: 600;
+  transition: all 0.2s;
+  flex: 1;
+}
+
+.btn-secondary:hover {
+  background: var(--border);
+}
+
+.btn-primary {
+  background: var(--green-dark);
+  color: var(--green-sage);
+  border: none;
+  padding: 10px 24px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 15px;
+  font-weight: 600;
+  transition: all 0.2s;
+  flex: 1;
+}
+
+.btn-primary:hover {
+  background: var(--green-sage);
+  color: var(--off-white);
+}
+
+.search-form-success {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: var(--off-white);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 24px;
+  animation: fadeIn 0.3s ease;
+}
+
+.success-card {
+  background: var(--green-dark);
+  color: var(--off-white);
+  border-radius: 16px;
+  padding: 40px 32px;
+  max-width: 400px;
+  width: 100%;
+  text-align: center;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15);
+}
+
+.success-card h2 {
+  margin: 0 0 16px;
+  font-size: 26px;
+}
+
+.success-card p {
+  margin: 0 0 24px;
+  font-size: 16px;
+  opacity: 0.9;
+}
+
+@media (max-width: 640px) {
+  .search-form-container {
+    max-height: 95vh;
+    border-radius: 0;
+  }
+  .checkbox-grid {
+    grid-template-columns: 1fr;
+  }
+  .search-form-actions {
+    flex-direction: column;
+  }
+}
