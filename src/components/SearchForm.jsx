@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { geocodeLocation, searchAnimalBoarding, normalizeResults } from '../services/osmService'
 import MapView from './MapView'
 
@@ -36,10 +36,6 @@ export default function SearchForm({ onClose }) {
   const isLastStep = currentStep === STEPS.length
   const isFirstStep = currentStep === 1
   const progress = ((currentStep - 1) / (STEPS.length - 1)) * 100
-
-  const mapCenter = selectedResult?.hasCoordinates
-    ? { lat: selectedResult.lat, lon: selectedResult.lon }
-    : null
 
   const updateField = (section, field, value) => {
     setFormData(prev => ({ ...prev, [section]: { ...prev[section], [field]: value } }))
@@ -83,6 +79,7 @@ export default function SearchForm({ onClose }) {
 
     setSearchLoading(true)
     setSearchError(null)
+    setSubmitted(true)
 
     try {
       const query = formData.location.ciudad || formData.location.codigoPostal
@@ -107,7 +104,6 @@ export default function SearchForm({ onClose }) {
       const normalized = normalizeResults(rawResults)
 
       setSearchResults(normalized)
-      setSubmitted(true)
     } catch (error) {
       console.error('Error en búsqueda:', error)
       setSearchError('Ocurrió un error al buscar residencias. Inténtalo de nuevo más tarde.')
@@ -120,6 +116,7 @@ export default function SearchForm({ onClose }) {
     if (searchLoading) {
       return (
         <section className="search-form-success">
+          <button className="search-form-close" onClick={onClose} aria-label="Cerrar">✕</button>
           <div className="success-card">
             <h2>Buscando residencias caninas...</h2>
             <p>Consultando OpenStreetMap para encontrar establecimientos reales cerca de ti.</p>
@@ -132,6 +129,7 @@ export default function SearchForm({ onClose }) {
     if (searchError) {
       return (
         <section className="search-form-success">
+          <button className="search-form-close" onClick={onClose} aria-label="Cerrar">✕</button>
           <div className="success-card">
             <h2>No se pudieron encontrar resultados</h2>
             <p>{searchError}</p>
@@ -144,6 +142,7 @@ export default function SearchForm({ onClose }) {
     if (searchResults.length === 0) {
       return (
         <section className="search-form-success">
+          <button className="search-form-close" onClick={onClose} aria-label="Cerrar">✕</button>
           <div className="success-card">
             <h2>No se encontraron residencias caninas</h2>
             <p>No se encontraron establecimientos de tipo <em>animal_boarding</em> en OpenStreetMap dentro del radio seleccionado para esta localidad.</p>
@@ -156,7 +155,8 @@ export default function SearchForm({ onClose }) {
 
     return (
       <section className="search-form-success">
-        <div className="success-card">
+        <button className="search-form-close" onClick={onClose} aria-label="Cerrar">✕</button>
+        <div className="success-card success-card--results">
           <h2>Residencias caninas encontradas</h2>
           <p>Se encontraron {searchResults.length} establecimiento(s) real(es) en OpenStreetMap dentro de {formData.location.radio} km.</p>
 
@@ -169,6 +169,7 @@ export default function SearchForm({ onClose }) {
                 centerPoint={searchCenter}
                 radiusKm={formData.location.radio}
                 onSelectResult={setSelectedResult}
+                selectedResult={selectedResult}
               />
               {selectedResult && (
                 <button
@@ -242,10 +243,10 @@ export default function SearchForm({ onClose }) {
         </div>
 
         <div className="search-form-content">
-          {currentStep === 1 && <StepLocation updateField={updateField} formData={formData} />}
-          {currentStep === 2 && <StepDog updateField={updateField} formData={formData} />}
-          {currentStep === 3 && <StepNeeds updateField={updateField} formData={formData} />}
-          {currentStep === 4 && <StepStay updateField={updateField} formData={formData} />}
+          {currentStep === 1 && <StepLocation updateField={updateField} formData={formData} errors={errors} />}
+          {currentStep === 2 && <StepDog updateField={updateField} formData={formData} errors={errors} />}
+          {currentStep === 3 && <StepNeeds updateField={updateField} formData={formData} errors={errors} />}
+          {currentStep === 4 && <StepStay updateField={updateField} formData={formData} errors={errors} />}
           {currentStep === 5 && <StepPreferences togglePreference={togglePreference} formData={formData} />}
           {currentStep === 6 && <StepSummary formData={formData} />}
         </div>
@@ -258,13 +259,25 @@ export default function SearchForm({ onClose }) {
     </section>
   )
 }
-function StepLocation({ updateField, formData }) {
+function FieldError({ message }) {
+  if (!message) return null
+  return <p className="form-error" role="alert">{message}</p>
+}
+
+function StepLocation({ updateField, formData, errors }) {
   return (
     <div className="form-step">
       <h3>1. ¿Dónde buscas?</h3>
       <div className="form-group">
         <label>Localidad o código postal</label>
-        <input type="text" placeholder="Ej. Madrid o 28001" value={formData.location.ciudad} onChange={e => updateField('location', 'ciudad', e.target.value)} />
+        <input
+          type="text"
+          placeholder="Ej. Madrid o 28001"
+          value={formData.location.ciudad}
+          onChange={e => updateField('location', 'ciudad', e.target.value)}
+          aria-invalid={Boolean(errors.ciudad)}
+        />
+        <FieldError message={errors.ciudad} />
       </div>
       <div className="form-group"><label>Radio de búsqueda</label>
         <div className="radio-group">
@@ -275,28 +288,56 @@ function StepLocation({ updateField, formData }) {
   )
 }
 
-function StepDog({ updateField, formData }) {
+function StepDog({ updateField, formData, errors }) {
   return (
     <div className="form-step">
       <h3>2. Cuéntanos sobre tu perro</h3>
       <div className="form-grid">
         <div className="form-group"><label>Nombre (opcional)</label><input type="text" placeholder="Nombre" value={formData.dog.nombre} onChange={e => updateField('dog', 'nombre', e.target.value)} /></div>
-        <div className="form-group"><label>Raza</label><input type="text" placeholder="Labrador, Golden..." value={formData.dog.raza} onChange={e => updateField('dog', 'raza', e.target.value)} /></div>
-        <div className="form-group"><label>Edad (años)</label><input type="number" min="0" max="30" value={formData.dog.edad} onChange={e => updateField('dog', 'edad', e.target.value)} /></div>
-        <div className="form-group"><label>Peso (kg)</label><input type="number" min="0" max="100" value={formData.dog.peso} onChange={e => updateField('dog', 'peso', e.target.value)} /></div>
-        <div className="form-group"><label>Tamaño</label><select value={formData.dog.tamano} onChange={e => updateField('dog', 'tamano', e.target.value)}><option value="">Seleccionar</option>{TAMAÑOS.map(t => <option key={t} value={t}>{t}</option>)}</select></div>
-        <div className="form-group"><label>Carácter</label><select value={formData.dog.caracter} onChange={e => updateField('dog', 'caracter', e.target.value)}><option value="">Seleccionar</option>{CARACTERES.map(c => <option key={c} value={c}>{c}</option>)}</select></div>
+        <div className="form-group">
+          <label>Raza</label>
+          <input type="text" placeholder="Labrador, Golden..." value={formData.dog.raza} onChange={e => updateField('dog', 'raza', e.target.value)} aria-invalid={Boolean(errors.raza)} />
+          <FieldError message={errors.raza} />
+        </div>
+        <div className="form-group">
+          <label>Edad (años)</label>
+          <input type="number" min="0" max="30" value={formData.dog.edad} onChange={e => updateField('dog', 'edad', e.target.value)} aria-invalid={Boolean(errors.edad)} />
+          <FieldError message={errors.edad} />
+        </div>
+        <div className="form-group">
+          <label>Peso (kg)</label>
+          <input type="number" min="0" max="100" value={formData.dog.peso} onChange={e => updateField('dog', 'peso', e.target.value)} aria-invalid={Boolean(errors.peso)} />
+          <FieldError message={errors.peso} />
+        </div>
+        <div className="form-group">
+          <label>Tamaño</label>
+          <select value={formData.dog.tamano} onChange={e => updateField('dog', 'tamano', e.target.value)} aria-invalid={Boolean(errors.tamano)}><option value="">Seleccionar</option>{TAMAÑOS.map(t => <option key={t} value={t}>{t}</option>)}</select>
+          <FieldError message={errors.tamano} />
+        </div>
+        <div className="form-group">
+          <label>Carácter</label>
+          <select value={formData.dog.caracter} onChange={e => updateField('dog', 'caracter', e.target.value)} aria-invalid={Boolean(errors.caracter)}><option value="">Seleccionar</option>{CARACTERES.map(c => <option key={c} value={c}>{c}</option>)}</select>
+          <FieldError message={errors.caracter} />
+        </div>
       </div>
     </div>
   )
 }
-function StepNeeds({ updateField, formData }) {
+function StepNeeds({ updateField, formData, errors }) {
   return (
     <div className="form-step">
       <h3>3. Necesidades de tu perro</h3>
       <div className="form-grid">
-        <div className="form-group"><label>Sociabilidad</label><select value={formData.needs.sociabilidad} onChange={e => updateField('needs', 'sociabilidad', e.target.value)}><option value="">Seleccionar</option><option>Muy sociable</option><option>Sociable</option><option>Tímido</option><option>Prefiere estar solo</option></select></div>
-        <div className="form-group"><label>Actividad</label><select value={formData.needs.actividad} onChange={e => updateField('needs', 'actividad', e.target.value)}><option value="">Seleccionar</option><option>Bajo</option><option>Medio</option><option>Alto</option></select></div>
+        <div className="form-group">
+          <label>Sociabilidad</label>
+          <select value={formData.needs.sociabilidad} onChange={e => updateField('needs', 'sociabilidad', e.target.value)} aria-invalid={Boolean(errors.sociabilidad)}><option value="">Seleccionar</option><option>Muy sociable</option><option>Sociable</option><option>Tímido</option><option>Prefiere estar solo</option></select>
+          <FieldError message={errors.sociabilidad} />
+        </div>
+        <div className="form-group">
+          <label>Actividad</label>
+          <select value={formData.needs.actividad} onChange={e => updateField('needs', 'actividad', e.target.value)} aria-invalid={Boolean(errors.actividad)}><option value="">Seleccionar</option><option>Bajo</option><option>Medio</option><option>Alto</option></select>
+          <FieldError message={errors.actividad} />
+        </div>
         <div className="form-group"><label>Necesidades especiales</label><textarea value={formData.needs.necesidadesEspeciales} onChange={e => updateField('needs', 'necesidadesEspeciales', e.target.value)} placeholder="Medicamentos, alergias..." /></div>
         <div className="form-group"><label>Cuidados específicos</label><textarea value={formData.needs.cuidados} onChange={e => updateField('needs', 'cuidados', e.target.value)} placeholder="Dietas, cepillado..." /></div>
       </div>
@@ -304,14 +345,26 @@ function StepNeeds({ updateField, formData }) {
   )
 }
 
-function StepStay({ updateField, formData }) {
+function StepStay({ updateField, formData, errors }) {
   return (
     <div className="form-step">
       <h3>4. Detalles de la estancia</h3>
       <div className="form-grid">
-        <div className="form-group"><label>Fecha entrada</label><input type="date" value={formData.stay.fechaEntrada} onChange={e => updateField('stay', 'fechaEntrada', e.target.value)} /></div>
-        <div className="form-group"><label>Fecha salida</label><input type="date" value={formData.stay.fechaSalida} onChange={e => updateField('stay', 'fechaSalida', e.target.value)} /></div>
-        <div className="form-group"><label>Presupuesto máximo/día (€)</label><input type="number" min="0" value={formData.stay.presupuesto} onChange={e => updateField('stay', 'presupuesto', e.target.value)} /></div>
+        <div className="form-group">
+          <label>Fecha entrada</label>
+          <input type="date" value={formData.stay.fechaEntrada} onChange={e => updateField('stay', 'fechaEntrada', e.target.value)} aria-invalid={Boolean(errors.fechaEntrada)} />
+          <FieldError message={errors.fechaEntrada} />
+        </div>
+        <div className="form-group">
+          <label>Fecha salida</label>
+          <input type="date" value={formData.stay.fechaSalida} onChange={e => updateField('stay', 'fechaSalida', e.target.value)} aria-invalid={Boolean(errors.fechaSalida)} />
+          <FieldError message={errors.fechaSalida} />
+        </div>
+        <div className="form-group">
+          <label>Presupuesto máximo/día (€)</label>
+          <input type="number" min="0" value={formData.stay.presupuesto} onChange={e => updateField('stay', 'presupuesto', e.target.value)} aria-invalid={Boolean(errors.presupuesto)} />
+          <FieldError message={errors.presupuesto} />
+        </div>
       </div>
     </div>
   )

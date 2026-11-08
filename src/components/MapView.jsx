@@ -24,26 +24,23 @@ export const MapCenterSetter = ({ center }) => {
   return null
 }
 
-export default function MapView({ results, centerPoint, radiusKm, onSelectResult }) {
+export default function MapView({ results, centerPoint, radiusKm, onSelectResult, selectedResult }) {
   const mapRef = useRef(null)
 
-  useEffect(() => {
-    // Si hay un resultado seleccionado, centrar en él
-    if (onSelectResult && mapRef.current) {
-      // La selección se maneja mediante el callback del padre
-    }
-  }, [onSelectResult])
-
   const defaultCenter = centerPoint || { lat: 40.4167, lon: -3.7033 }
+  const focusPoint = selectedResult?.hasCoordinates
+    ? { lat: selectedResult.lat, lon: selectedResult.lon }
+    : centerPoint
 
   return (
     <div className="map-view-container">
       <MapContainer
+        ref={mapRef}
         center={[defaultCenter.lat, defaultCenter.lon]}
         zoom={13}
         style={{ height: '100%', width: '100%' }}
-        whenCreated={map => { mapRef.current = map }}
       >
+        {focusPoint && <MapCenterSetter center={focusPoint} />}
         <TileLayer
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
