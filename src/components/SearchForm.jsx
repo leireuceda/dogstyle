@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { geocodeLocation, searchAnimalBoarding, normalizeResults } from '../services/osmService'
+import MapView from './MapView'
 
 const STEPS = [
   { id: 1, title: 'Ubicación' },
@@ -29,10 +30,16 @@ export default function SearchForm({ onClose }) {
   const [searchLoading, setSearchLoading] = useState(false)
   const [searchResults, setSearchResults] = useState([])
   const [searchError, setSearchError] = useState(null)
+  const [selectedResult, setSelectedResult] = useState(null)
+  const [searchCenter, setSearchCenter] = useState(null)
 
   const isLastStep = currentStep === STEPS.length
   const isFirstStep = currentStep === 1
   const progress = ((currentStep - 1) / (STEPS.length - 1)) * 100
+
+  const mapCenter = selectedResult?.hasCoordinates
+    ? { lat: selectedResult.lat, lon: selectedResult.lon }
+    : null
 
   const updateField = (section, field, value) => {
     setFormData(prev => ({ ...prev, [section]: { ...prev[section], [field]: value } }))
@@ -93,6 +100,8 @@ export default function SearchForm({ onClose }) {
         return
       }
 
+      setSearchCenter(coords)
+
       // 2. Buscar residencias caninas con Overpass API
       const rawResults = await searchAnimalBoarding(coords.lat, coords.lon, formData.location.radio)
       const normalized = normalizeResults(rawResults)
@@ -150,27 +159,62 @@ export default function SearchForm({ onClose }) {
         <div className="success-card">
           <h2>Residencias caninas encontradas</h2>
           <p>Se encontraron {searchResults.length} establecimiento(s) real(es) en OpenStreetMap dentro de {formData.location.radio} km.</p>
-          <div className="results-list">
-            {searchResults.map((r) => (
-              <div key={r.id} className="result-card">
-                <div className="result-header">
-                  <h3>{r.name}</h3>
-                  <span className="result-source">{r.source}</span>
-                </div>
-                <p className="result-address">📍 {r.address}</p>
-                <p className="result-phone">📞 {r.phone}</p>
-                <p className="result-website">🌐 {r.website}</p>
-                <p className="result-animals">🐾 Animales: {r.animals.length > 0 ? r.animals.join(', ') : 'No especificado'}</p>
-                {r.hasCoordinates ? (
-                  <p className="result-coords">🗺️ Coordenadas: {r.lat.toFixed(4)}, {r.lon.toFixed(4)} (listas para mapa)</p>
-                ) : (
-                  <p className="result-coords">🗺️ Coordenadas: No disponibles</p>
-                )}
-                <p className="result-osm">ID OSM: {r.osmType}/{r.osmId}</p>
+
+          <div className="results-container">
+            {/* Mapa */}
+            <div className="map-panel">
+              <h3 className="map-title">Mapa de residencias</h3>
+              <MapView
+                results={searchResults}
+                centerPoint={searchCenter}
+                radiusKm={formData.location.radio}
+                onSelectResult={setSelectedResult}
+              />
+              {selectedResult && (
+                <button
+                  className="btn-secondary map-reset"
+                  onClick={() => setSelectedResult(null)}
+                >
+                  Ver todas en el mapa
+                </button>
+              )}
+            </div>
+
+            {/* Lista de resultados */}
+            <div className="list-panel">
+              <h3 className="list-title">Listado de establecimientos</h3>
+              <div className="results-list">
+                {searchResults.map((r) => (
+                  <div
+                    key={r.id}
+                    className={`result-card ${selectedResult?.id === r.id ? 'selected' : ''}`}
+                    onClick={() => {
+                      if (r.hasCoordinates) setSelectedResult(r)
+                    }}
+                  >
+                    <div className="result-header">
+                      <h3>{r.name}</h3>
+                      <span className="result-source">{r.source}</span>
+                    </div>
+                    <p className="result-address">📍 {r.address}</p>
+                    <p className="result-phone">📞 {r.phone}</p>
+                    <p className="result-website">🌐 {r.website}</p>
+                    <p className="result-animals">🐾 Animales: {r.animals.length > 0 ? r.animals.join(', ') : 'No especificado'}</p>
+                    {r.hasCoordinates ? (
+                      <>
+                        <p className="result-coords">🗺️ {r.lat.toFixed(4)}, {r.lon.toFixed(4)}</p>
+                        <p className="result-distance">📏 Radio búsqueda: {formData.location.radio} km</p>
+                      </>
+                    ) : (
+                      <p className="result-coords">🗺️ Coordenadas: No disponibles</p>
+                    )}
+                    <p className="result-osm">ID OSM: {r.osmType}/{r.osmId}</p>
+                  </div>
+                ))}
               </div>
-            ))}
+              <button className="btn-primary" onClick={() => { setSubmitted(false); setCurrentStep(1); setSearchResults([]); setSelectedResult(null); setSearchCenter(null) }}>Volver al inicio</button>
+            </div>
           </div>
-          <button className="btn-primary" onClick={() => { setSubmitted(false); setCurrentStep(1); setSearchResults([]) }}>Volver al inicio</button>
         </div>
       </section>
     )
