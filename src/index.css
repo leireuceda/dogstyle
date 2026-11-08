@@ -914,3 +914,173 @@ code {
     padding: 12px;
   }
 }
+@media (max-width: 640px) {
+  .results-list {
+    max-height: 250px;
+  }
+  .result-card {
+    padding: 12px;
+  }
+}
+
+/* ========== NUEVAS SECCIONES DE NAVEGACIÓN ========== */
+.section-container {
+  max-width: 1126px;
+  margin: 0 auto;
+  padding: 60px 24px;
+}
+
+.section-title {
+  font-size: 32px;
+  color: var(--green-dark);
+  text-align: center;
+  margin: 0 0 16px;
+}
+
+.section-intro {
+  font-size: 17px;
+  color: #555;
+  text-align: center;
+  margin: 0 0 48px;
+  max-width: 700px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+/* Cómo funciona - pasos */
+.steps-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 24px;
+}
+
+.step {
+  background: var(--beige-warm);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 28px 24px;
+  text-align: center;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.step:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.08);
+}
+
+.step-number {
+  width: 40px;
+  height: 40px;
+  background: var(--green-dark);
+  color: var(--off-white);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  font-weight: 700;
+  margin: 0 auto 16px;
+}
+
+.step h3 {
+  font-size: 18px;
+  color: var(--green-dark);
+  margin: 0 0 12px;
+}
+
+.step p {
+  font-size: 14px;
+  color: #555;
+  margin: 0;
+}
+
+/* Ventajas - grid */
+.features-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 24px;
+}
+
+.feature-card {
+  background: var(--beige-warm);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 28px 24px;
+  text-align: left;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.feature-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.08);
+}
+
+.feature-card h3 {
+  font-size: 18px;
+  color: var(--green-dark);
+  margin: 0 0 12px;
+}
+
+.feature-card p {
+  font-size: 14px;
+  color: #555;
+  margin: 0;
+}
+
+/* Sobre nosotros */
+.about-content {
+  max-width: 800px;
+  margin: 0 auto;
+}
+
+.about-text h3 {
+  font-size: 20px;
+  color: var(--green-dark);
+  margin: 24px 0 12px;
+}
+
+.about-text p {
+  font-size: 16px;
+  color: #555;
+  margin: 0 0 16px;
+  line-height: 1.6;
+}
+
+/* Footer con atribución */
+.footer-attribution {
+  margin-top: 24px;
+  font-size: 12px;
+  color: #888;
+  text-align: center;
+}
+
+.footer-attribution a {
+  color: var(--green-dark);
+  text-decoration: none;
+}
+
+.footer-attribution a:hover {
+  text-decoration: underline;
+}
+
+/* Responsive para secciones */
+@media (max-width: 640px) {
+  .section-container {
+    padding: 40px 16px;
+  }
+  .section-title {
+    font-size: 26px;
+  }
+  .section-intro {
+    font-size: 15px;
+  }
+  .step, .feature-card {
+    padding: 20px 16px;
+  }
+  .step h3, .feature-card h3 {
+    font-size: 16px;
+  }
+  .step p, .feature-card p {
+    font-size: 13px;
+  }
+}
