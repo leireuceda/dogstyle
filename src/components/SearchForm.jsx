@@ -237,7 +237,7 @@ export default function SearchForm({ onClose }) {
           <button className="search-form-close" onClick={onClose} aria-label="Cerrar">✕</button>
           <div className="success-card">
             <h2>Buscando residencias caninas...</h2>
-            <p>Consultando fuentes disponibles (OpenStreetMap y, si está configurada, Google Maps vía Apify) para encontrar establecimientos reales cerca de ti.</p>
+            <p>Estamos buscando establecimientos disponibles cerca de ti.</p>
             <div className="search-loading">Cargando…</div>
           </div>
         </section>
