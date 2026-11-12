@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { geocodeLocation, searchAnimalBoarding, normalizeResults } from '../services/osmService'
 import { evaluateStayOpeningHours } from '../services/openingHours'
 import { lookupAutomaticPhone, lookupPhoneOnDemand } from '../services/phoneService'
+import GoogleMapEmbed from './GoogleMapEmbed'
 import MapView from './MapView'
 
 const STEPS = [
@@ -64,6 +65,7 @@ export default function SearchForm({ onClose }) {
   const [searchCenter, setSearchCenter] = useState(null)
   const [phoneLookups, setPhoneLookups] = useState({})
   const [phoneBatchLoading, setPhoneBatchLoading] = useState(false)
+  const [mapMode, setMapMode] = useState('osm') // 'osm' (resultados verificados) | 'google' (búsqueda en Google Maps)
 
   const isLastStep = currentStep === STEPS.length
   const isFirstStep = currentStep === 1
@@ -307,21 +309,61 @@ export default function SearchForm({ onClose }) {
           <div className="results-container">
             {/* Mapa */}
             <div className="map-panel">
-              <h3 className="map-title">Mapa de residencias</h3>
-              <MapView
-                results={searchResults}
-                centerPoint={searchCenter}
-                radiusKm={formData.location.radio}
-                onSelectResult={setSelectedResult}
-                selectedResult={selectedResult}
-              />
-              {selectedResult && (
-                <button
-                  className="btn-secondary map-reset"
-                  onClick={() => setSelectedResult(null)}
-                >
-                  Ver todas en el mapa
-                </button>
+              <div className="map-panel-header">
+                <h3 className="map-title">Mapa de residencias</h3>
+                <div className="map-toggle" role="group" aria-label="Tipo de mapa">
+                  <button
+                    type="button"
+                    className={`map-toggle-btn ${mapMode === 'osm' ? 'active' : ''}`}
+                    onClick={() => setMapMode('osm')}
+                  >
+                    Verificados (OSM)
+                  </button>
+                  <button
+                    type="button"
+                    className={`map-toggle-btn ${mapMode === 'google' ? 'active' : ''}`}
+                    onClick={() => setMapMode('google')}
+                  >
+                    Google Maps
+                  </button>
+                </div>
+              </div>
+
+              {mapMode === 'osm' ? (
+                <>
+                  <MapView
+                    results={searchResults}
+                    centerPoint={searchCenter}
+                    radiusKm={formData.location.radio}
+                    onSelectResult={setSelectedResult}
+                    selectedResult={selectedResult}
+                  />
+                  {selectedResult && (
+                    <button
+                      className="btn-secondary map-reset"
+                      onClick={() => setSelectedResult(null)}
+                    >
+                      Ver todas en el mapa
+                    </button>
+                  )}
+                </>
+              ) : (
+                <>
+                  <GoogleMapEmbed
+                    centerPoint={searchCenter}
+                    city={formData.location.ciudad}
+                    radiusKm={formData.location.radio}
+                    selectedResult={selectedResult}
+                  />
+                  {selectedResult && (
+                    <button
+                      className="btn-secondary map-reset"
+                      onClick={() => setSelectedResult(null)}
+                    >
+                      Ver zona completa
+                    </button>
+                  )}
+                </>
               )}
             </div>
 
@@ -518,7 +560,7 @@ export default function SearchForm({ onClose }) {
                 🗺️ Buscar más residencias en Google Maps
               </a>
 
-              <button className="btn-primary" onClick={() => { setSubmitted(false); setCurrentStep(1); setSearchResults([]); setSelectedResult(null); setSearchCenter(null); setPhoneLookups({}); setHiddenClosedCount(0) }}>Volver al inicio</button>
+              <button className="btn-primary" onClick={() => { setSubmitted(false); setCurrentStep(1); setSearchResults([]); setSelectedResult(null); setSearchCenter(null); setPhoneLookups({}); setHiddenClosedCount(0); setMapMode('osm') }}>Volver al inicio</button>
             </div>
           </div>
         </div>
