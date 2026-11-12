@@ -181,7 +181,11 @@ export default function SearchForm({ onClose }) {
       setHiddenClosedCount(evaluated.length - visibleResults.length)
     } catch (error) {
       console.error('Error en búsqueda:', error)
-      setSearchError('Ocurrió un error al buscar residencias. Inténtalo de nuevo más tarde.')
+      setSearchError(
+        error?.code === 'OVERPASS_UNAVAILABLE'
+          ? 'Los servidores de OpenStreetMap están saturados en este momento. Espera unos segundos y vuelve a intentarlo.'
+          : 'Ocurrió un error al buscar residencias. Inténtalo de nuevo más tarde.',
+      )
     } finally {
       setSearchLoading(false)
     }

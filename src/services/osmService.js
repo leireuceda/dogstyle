@@ -2,10 +2,20 @@
 // Servicios gratuitos: Nominatim (geocodificación) y Overpass API (búsqueda de establecimientos)
 // Licencia: OpenStreetMap ODbL — se requiere atribución visible
 
-import { extractOsmPhone, extractPrice } from './phoneService'
+import { extractOsmPhone, extractPrice } from './phoneService.js'
 
 const NOMINATIM_BASE = 'https://nominatim.openstreetmap.org/search'
-const OVERPASS_BASE = 'https://overpass-api.de/api/interpreter'
+// Varios espejos de Overpass: si uno está caído o saturado, se prueban los demás.
+// El orden se reordena para empezar por el último que funcionó.
+const OVERPASS_ENDPOINTS = [
+  'https://overpass-api.de/api/interpreter',
+  'https://overpass.openstreetmap.fr/api/interpreter',
+  'https://overpass.kumi.systems/api/interpreter',
+  'https://overpass.private.coffee/api/interpreter',
+]
+
+const OVERPASS_TIMEOUT_MS = 10000
+let preferredEndpoint = 0
 
 // Caché simple en memoria para evitar consultas innecesarias
 const cache = new Map()
@@ -91,6 +101,70 @@ out center tags;
 }
 
 /**
+ * Envía la consulta a los espejos de Overpass hasta obtener una respuesta válida.
+ * Si todos fallan, lanza un error identificable para que la UI muestre un aviso claro.
+ * @param {string} query - Consulta Overpass QL
+ * @returns {Promise<Array>} Elementos devueltos por Overpass
+ */
+async function fetchOverpassElements(query) {
+  const orderedEndpoints = OVERPASS_ENDPOINTS.map(
+    (_, offset) => OVERPASS_ENDPOINTS[(preferredEndpoint + offset) % OVERPASS_ENDPOINTS.length],
+  )
+
+  let lastError = null
+  let sawEmptyResult = false
+
+  for (const endpoint of orderedEndpoints) {
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), OVERPASS_TIMEOUT_MS)
+
+    try {
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'User-Agent': 'DOGSTYLE/1.0 (contacto@dogstyle.es)',
+        },
+        body: `data=${encodeURIComponent(query)}`,
+        signal: controller.signal,
+      })
+
+      if (!response.ok) {
+        lastError = new Error(`Overpass ${endpoint} respondió ${response.status}`)
+        continue
+      }
+
+      const data = await response.json()
+      if (!Array.isArray(data?.elements)) {
+        lastError = new Error(`Overpass ${endpoint} devolvió una respuesta no válida`)
+        continue
+      }
+
+      if (data.elements.length === 0) {
+        // Algunos espejos tienen cobertura parcial: probamos el siguiente.
+        sawEmptyResult = true
+        continue
+      }
+
+      preferredEndpoint = OVERPASS_ENDPOINTS.indexOf(endpoint)
+      return data.elements
+    } catch (error) {
+      lastError = error
+      console.warn(`Overpass falló en ${endpoint}:`, error.message)
+    } finally {
+      clearTimeout(timeout)
+    }
+  }
+
+  if (sawEmptyResult) return []
+
+  console.error('Ningún espejo de Overpass respondió:', lastError)
+  const error = new Error('Los servidores de OpenStreetMap no responden en este momento.')
+  error.code = 'OVERPASS_UNAVAILABLE'
+  throw error
+}
+
+/**
  * Consulta Overpass API para obtener residencias caninas reales.
  * @param {number} lat - Latitud
  * @param {number} lon - Longitud
@@ -98,77 +172,57 @@ out center tags;
  * @returns {Promise<Array<{id: string, type: string, name: string, address: string, phone: string, website: string, lat: number, lon: number, animals: string[], osmType: string, osmId: number, source: string}>>}
  */
 export async function searchAnimalBoarding(lat, lon, radiusKm) {
-  if (!lat || !lon || !radiusKm) return []
+  if (lat == null || lon == null || !radiusKm) return []
 
   const cacheKey = `overpass:${lat.toFixed(5)},${lon.toFixed(5)},${radiusKm}`
   const cached = cacheGet(cacheKey)
   if (cached) return cached
 
-  try {
-    const query = buildOverpassQuery(lat, lon, radiusKm)
-    const response = await fetch(OVERPASS_BASE, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'User-Agent': 'DOGSTYLE/1.0 (contacto@dogstyle.es)',
-      },
-      body: `data=${encodeURIComponent(query)}`,
+  const query = buildOverpassQuery(lat, lon, radiusKm)
+  const elements = await fetchOverpassElements(query)
+
+  const results = elements
+    // Solo mostramos ubicaciones con nombre: las que no tienen `name` en OSM
+    // no son útiles para el usuario y se descartan.
+    .filter((el) => (el.tags?.name || '').trim().length > 0)
+    .map((el) => {
+      const tags = el.tags || {}
+      const animals = tags['animal_boarding']
+        ? tags['animal_boarding'].split(';').map((a) => a.trim())
+        : []
+
+      const addressParts = []
+      if (tags['addr:housenumber']) addressParts.push(tags['addr:housenumber'])
+      if (tags['addr:street']) addressParts.push(tags['addr:street'])
+      if (tags['addr:postcode']) addressParts.push(tags['addr:postcode'])
+      if (tags['addr:city']) addressParts.push(tags['addr:city'])
+
+      const latCenter = el.lat || (el.center && el.center.lat)
+      const lonCenter = el.lon || (el.center && el.center.lon)
+      const phoneData = extractOsmPhone(tags)
+      const priceData = extractPrice(tags)
+
+      return {
+        id: `${el.type}/${el.id}`,
+        type: el.type,
+        name: tags.name.trim(),
+        address: addressParts.length > 0 ? addressParts.join(', ') : 'No disponible',
+        ...phoneData,
+        website: tags['contact:website'] || tags.website || 'No disponible',
+        wikidata: tags.wikidata || null,
+        openingHours: tags.opening_hours || null,
+        ...priceData,
+        lat: latCenter ? parseFloat(latCenter) : null,
+        lon: lonCenter ? parseFloat(lonCenter) : null,
+        animals: animals.filter(Boolean),
+        osmType: el.type,
+        osmId: el.id,
+        source: 'OpenStreetMap (ODbL)',
+      }
     })
 
-    if (!response.ok) {
-      console.warn(`Overpass respondió ${response.status}`)
-      return []
-    }
-
-    const data = await response.json()
-    const elements = data.elements || []
-
-    const results = elements
-      // Solo mostramos ubicaciones con nombre: las que no tienen `name` en OSM
-      // no son útiles para el usuario y se descartan.
-      .filter((el) => (el.tags?.name || '').trim().length > 0)
-      .map((el) => {
-        const tags = el.tags || {}
-        const animals = tags['animal_boarding']
-          ? tags['animal_boarding'].split(';').map((a) => a.trim())
-          : []
-
-        const addressParts = []
-        if (tags['addr:housenumber']) addressParts.push(tags['addr:housenumber'])
-        if (tags['addr:street']) addressParts.push(tags['addr:street'])
-        if (tags['addr:postcode']) addressParts.push(tags['addr:postcode'])
-        if (tags['addr:city']) addressParts.push(tags['addr:city'])
-
-        const latCenter = el.lat || (el.center && el.center.lat)
-        const lonCenter = el.lon || (el.center && el.center.lon)
-        const phoneData = extractOsmPhone(tags)
-        const priceData = extractPrice(tags)
-
-        return {
-          id: `${el.type}/${el.id}`,
-          type: el.type,
-          name: tags.name.trim(),
-          address: addressParts.length > 0 ? addressParts.join(', ') : 'No disponible',
-          ...phoneData,
-          website: tags['contact:website'] || tags.website || 'No disponible',
-          wikidata: tags.wikidata || null,
-          openingHours: tags.opening_hours || null,
-          ...priceData,
-          lat: latCenter ? parseFloat(latCenter) : null,
-          lon: lonCenter ? parseFloat(lonCenter) : null,
-          animals: animals.filter(Boolean),
-          osmType: el.type,
-          osmId: el.id,
-          source: 'OpenStreetMap (ODbL)',
-        }
-      })
-
-    cacheSet(cacheKey, results)
-    return results
-  } catch (error) {
-    console.error('Error en búsqueda Overpass:', error)
-    return []
-  }
+  cacheSet(cacheKey, results)
+  return results
 }
 
 /**
