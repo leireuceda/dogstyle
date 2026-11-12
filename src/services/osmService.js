@@ -98,6 +98,39 @@ async function fetchFromBoardingProxy(lat, lon, radiusKm) {
   }
 }
 
+function isValidElements(value) {
+  return Array.isArray(value)
+}
+
+/**
+ * Obtiene elementos de Overpass lo más rápido y fiable posible:
+ * - Lanza en paralelo la consulta directa a los espejos y el proxy propio.
+ * - Devuelve la primera respuesta válida (la más rápida). Si una falla, espera
+ *   a la otra. Esto evita depender de un único servidor y funciona incluso si
+ *   la red del usuario bloquea los espejos externos (el proxy es same-origin).
+ */
+async function fetchElementsFast(lat, lon, radiusKm, query) {
+  const proxyPromise = fetchFromBoardingProxy(lat, lon, radiusKm).then((elements) => {
+    if (!isValidElements(elements)) throw new Error('PROXY_UNAVAILABLE')
+    return { source: 'proxy', elements }
+  })
+
+  const mirrorsPromise = fetchOverpassElements(query).then((elements) => ({
+    source: 'mirrors',
+    elements,
+  }))
+
+  try {
+    const fastest = await Promise.any([proxyPromise, mirrorsPromise])
+    return fastest.elements
+  } catch {
+    // Si ambos fallan, no hay forma gratuita de obtener datos en este momento.
+    const error = new Error('Los servidores de OpenStreetMap no responden en este momento.')
+    error.code = 'OVERPASS_UNAVAILABLE'
+    throw error
+  }
+}
+
 /**
  * Consulta Overpass API para obtener residencias caninas reales.
  * @param {number} lat - Latitud
@@ -113,18 +146,7 @@ export async function searchAnimalBoarding(lat, lon, radiusKm) {
   if (cached) return cached
 
   const query = buildAnimalBoardingQuery(lat, lon, radiusKm)
-
-  let elements
-  try {
-    elements = await fetchOverpassElements(query)
-  } catch (error) {
-    if (error?.code !== 'OVERPASS_UNAVAILABLE') throw error
-
-    // Respaldo final: proxy serverless propio.
-    const proxied = await fetchFromBoardingProxy(lat, lon, radiusKm)
-    if (proxied === null) throw error
-    elements = proxied
-  }
+  const elements = await fetchElementsFast(lat, lon, radiusKm, query)
 
   const results = elements
     // Solo mostramos ubicaciones con nombre: las que no tienen `name` en OSM
