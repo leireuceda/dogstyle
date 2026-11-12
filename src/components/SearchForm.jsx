@@ -1,37 +1,45 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { geocodeLocation, searchAnimalBoarding, normalizeResults } from '../services/osmService'
+import { evaluateStayOpeningHours } from '../services/openingHours'
+import { lookupAutomaticPhone, lookupPhoneOnDemand } from '../services/phoneService'
 import MapView from './MapView'
 
 const STEPS = [
   { id: 1, title: 'Ubicación' },
   { id: 2, title: 'Información del perro' },
-  { id: 3, title: 'Necesidades' },
-  { id: 4, title: 'Estancia' },
-  { id: 5, title: 'Preferencias' },
-  { id: 6, title: 'Resumen' },
+  { id: 3, title: 'Estancia' },
+  { id: 4, title: 'Resumen' },
 ]
 
 const RADIOS = [5, 10, 20, 30, 50, 100]
+
+const withProtocol = (value) => (/^https?:\/\//i.test(value) ? value : `https://${value}`)
 const TAMAÑOS = ['Pequeño', 'Mediano', 'Grande', 'Muy grande']
 const CARACTERES = ['Tranquilo', 'Juguetón', 'Nervioso', 'Sociable', 'Independiente']
-const SERVICIOS = ['Paseos diarios', 'Juegos y estimulación', 'Veterinario 24h', 'Adiestramiento', 'Pelucanería / Baño', 'Cámaras de vigilancia', 'Transporte recogida', 'Alimentación especial']
+
+const formatDateEs = (value) => {
+  if (!value) return '—'
+  const [year, month, day] = value.split('-')
+  return `${day}/${month}/${year}`
+}
 
 export default function SearchForm({ onClose }) {
   const [currentStep, setCurrentStep] = useState(1)
   const [formData, setFormData] = useState({
     location: { ciudad: '', codigoPostal: '', radio: 10 },
     dog: { nombre: '', raza: '', edad: '', peso: '', tamano: '', caracter: '' },
-    needs: { sociabilidad: '', actividad: '', necesidadesEspeciales: '', cuidados: '' },
-    stay: { fechaEntrada: '', fechaSalida: '', presupuesto: '' },
-    preferences: [],
+    stay: { fechaEntrada: '', fechaSalida: '' },
   })
   const [errors, setErrors] = useState({})
   const [submitted, setSubmitted] = useState(false)
   const [searchLoading, setSearchLoading] = useState(false)
   const [searchResults, setSearchResults] = useState([])
+  const [hiddenClosedCount, setHiddenClosedCount] = useState(0)
   const [searchError, setSearchError] = useState(null)
   const [selectedResult, setSelectedResult] = useState(null)
   const [searchCenter, setSearchCenter] = useState(null)
+  const [phoneLookups, setPhoneLookups] = useState({})
+  const [phoneBatchLoading, setPhoneBatchLoading] = useState(false)
 
   const isLastStep = currentStep === STEPS.length
   const isFirstStep = currentStep === 1
@@ -42,28 +50,81 @@ export default function SearchForm({ onClose }) {
     setErrors(prev => { const n = { ...prev }; delete n[field]; return n })
   }
 
-  const togglePreference = (service) => {
-    setFormData(prev => {
-      const next = [...prev.preferences]
-      const idx = next.indexOf(service)
-      if (idx === -1) next.push(service); else next.splice(idx, 1)
-      return { ...prev, preferences: next }
+  // Enriquecimiento automático y prudente: solo Wikidata, y solo cuando OSM
+  // aporta un ID Q que garantiza que el teléfono pertenece a esa misma entidad.
+  useEffect(() => {
+    let cancelled = false
+    const pending = searchResults.filter((result) => !result.phone && result.wikidata)
+
+    pending.forEach((result) => {
+      lookupAutomaticPhone(result).then((lookup) => {
+        if (cancelled || lookup?.status !== 'found') return
+        setPhoneLookups((prev) => ({ ...prev, [result.id]: lookup }))
+      })
     })
+
+    return () => { cancelled = true }
+  }, [searchResults])
+
+  const getPhoneState = (result) => {
+    if (result.phone) {
+      return {
+        status: 'found',
+        phone: result.phone,
+        phoneHref: result.phoneHref,
+        phoneSource: result.phoneSource,
+      }
+    }
+    return phoneLookups[result.id] || { status: 'idle' }
   }
+
+  const handlePhoneLookup = async (result) => {
+    if (phoneLookups[result.id]?.status === 'loading') return
+
+    setPhoneLookups((prev) => ({ ...prev, [result.id]: { status: 'loading' } }))
+
+    try {
+      const lookup = await lookupPhoneOnDemand(result)
+      setPhoneLookups((prev) => ({ ...prev, [result.id]: lookup }))
+    } catch {
+      setPhoneLookups((prev) => ({ ...prev, [result.id]: { status: 'error' } }))
+    }
+  }
+
+  const handlePhoneBatch = async () => {
+    const pending = searchResults
+      .filter((result) => !result.phone && result.website !== 'No disponible')
+      .filter((result) => phoneLookups[result.id]?.status !== 'found')
+      .slice(0, 6)
+
+    if (pending.length === 0) return
+
+    setPhoneBatchLoading(true)
+    try {
+      for (let index = 0; index < pending.length; index += 2) {
+        await Promise.all(pending.slice(index, index + 2).map(handlePhoneLookup))
+      }
+    } finally {
+      setPhoneBatchLoading(false)
+    }
+  }
+
+  const phoneLookupTargets = searchResults.filter(
+    (result) => getPhoneState(result).status !== 'found' && result.website !== 'No disponible',
+  )
 
   const validateStep = (step) => {
     const nextErrors = {}
     const required = {
       1: ['location.ciudad'],
       2: ['dog.raza', 'dog.edad', 'dog.peso', 'dog.tamano', 'dog.caracter'],
-      3: ['needs.sociabilidad', 'needs.actividad'],
-      4: ['stay.fechaEntrada', 'stay.fechaSalida', 'stay.presupuesto'],
+      3: ['stay.fechaEntrada', 'stay.fechaSalida'],
     }
     ;(required[step] || []).forEach((path) => {
       const [section, field] = path.split('.')
       if (!formData[section][field]) nextErrors[field] = 'Campo obligatorio'
     })
-    if (step === 4 && formData.stay.fechaSalida && formData.stay.fechaEntrada && new Date(formData.stay.fechaSalida) < new Date(formData.stay.fechaEntrada)) {
+    if (step === 3 && formData.stay.fechaSalida && formData.stay.fechaEntrada && new Date(formData.stay.fechaSalida) < new Date(formData.stay.fechaEntrada)) {
       nextErrors.fechaSalida = 'La salida no puede ser antes de la entrada'
     }
     setErrors(nextErrors)
@@ -101,9 +162,23 @@ export default function SearchForm({ onClose }) {
 
       // 2. Buscar residencias caninas con Overpass API
       const rawResults = await searchAnimalBoarding(coords.lat, coords.lon, formData.location.radio)
-      const normalized = normalizeResults(rawResults)
+      const normalized = normalizeResults(rawResults, coords)
 
-      setSearchResults(normalized)
+      // 3. Comprobar el horario de cada residencia para las fechas elegidas.
+      // Las que están cerradas en la entrada o la salida no se ofrecen.
+      const evaluated = normalized.map((result) => ({
+        ...result,
+        stayOpening: evaluateStayOpeningHours(
+          result.openingHours,
+          formData.stay.fechaEntrada,
+          formData.stay.fechaSalida,
+        ),
+      }))
+
+      const visibleResults = evaluated.filter((result) => result.stayOpening.status !== 'closed')
+
+      setSearchResults(visibleResults)
+      setHiddenClosedCount(evaluated.length - visibleResults.length)
     } catch (error) {
       console.error('Error en búsqueda:', error)
       setSearchError('Ocurrió un error al buscar residencias. Inténtalo de nuevo más tarde.')
@@ -144,10 +219,23 @@ export default function SearchForm({ onClose }) {
         <section className="search-form-success">
           <button className="search-form-close" onClick={onClose} aria-label="Cerrar">✕</button>
           <div className="success-card">
-            <h2>No se encontraron residencias caninas</h2>
-            <p>No se encontraron establecimientos de tipo <em>animal_boarding</em> en OpenStreetMap dentro del radio seleccionado para esta localidad.</p>
-            <p>Esto puede deberse a que aún no hay residencias caninas mapeadas en OpenStreetMap para esa zona.</p>
-            <button className="btn-primary" onClick={() => { setSubmitted(false); setCurrentStep(1) }}>Volver a intentar</button>
+            <h2>No se encontraron residencias disponibles</h2>
+            {hiddenClosedCount > 0 ? (
+              <>
+                <p>
+                  Se encontraron {hiddenClosedCount} residencia(s) en OpenStreetMap, pero su horario
+                  indica que están cerradas el {formatDateEs(formData.stay.fechaEntrada)} o el{' '}
+                  {formatDateEs(formData.stay.fechaSalida)}, las fechas de tu estancia.
+                </p>
+                <p>Prueba con otras fechas para ver más opciones.</p>
+              </>
+            ) : (
+              <>
+                <p>No se encontraron establecimientos de tipo <em>animal_boarding</em> en OpenStreetMap dentro del radio seleccionado para esta localidad.</p>
+                <p>Esto puede deberse a que aún no hay residencias caninas mapeadas en OpenStreetMap para esa zona.</p>
+              </>
+            )}
+            <button className="btn-primary" onClick={() => { setSubmitted(false); setCurrentStep(1); setHiddenClosedCount(0) }}>Volver a intentar</button>
           </div>
         </section>
       )
@@ -158,7 +246,19 @@ export default function SearchForm({ onClose }) {
         <button className="search-form-close" onClick={onClose} aria-label="Cerrar">✕</button>
         <div className="success-card success-card--results">
           <h2>Residencias caninas encontradas</h2>
-          <p>Se encontraron {searchResults.length} establecimiento(s) real(es) en OpenStreetMap dentro de {formData.location.radio} km.</p>
+          <p>
+            Se encontraron {searchResults.length} establecimiento(s) real(es) en OpenStreetMap dentro de{' '}
+            {formData.location.radio} km para las fechas {formatDateEs(formData.stay.fechaEntrada)} –{' '}
+            {formatDateEs(formData.stay.fechaSalida)}, ordenados por cercanía. Solo se muestran los que
+            están abiertos esos días según su horario. Los teléfonos se muestran solo cuando proceden
+            de una fuente verificable.
+          </p>
+          {hiddenClosedCount > 0 && (
+            <p className="results-note">
+              {hiddenClosedCount} residencia(s) no se muestran porque su horario indica que están
+              cerradas en las fechas elegidas.
+            </p>
+          )}
 
           <div className="results-container">
             {/* Mapa */}
@@ -185,35 +285,168 @@ export default function SearchForm({ onClose }) {
             <div className="list-panel">
               <h3 className="list-title">Listado de establecimientos</h3>
               <div className="results-list">
-                {searchResults.map((r) => (
-                  <div
-                    key={r.id}
-                    className={`result-card ${selectedResult?.id === r.id ? 'selected' : ''}`}
-                    onClick={() => {
-                      if (r.hasCoordinates) setSelectedResult(r)
-                    }}
-                  >
-                    <div className="result-header">
-                      <h3>{r.name}</h3>
-                      <span className="result-source">{r.source}</span>
+                {searchResults.map((r) => {
+                  const phoneState = getPhoneState(r)
+                  const hasWebsite = r.website && r.website !== 'No disponible'
+                  const websiteUrl = hasWebsite ? withProtocol(r.website) : null
+                  const phoneSourceUrl = phoneState.phoneSource?.startsWith('OpenStreetMap')
+                    ? `https://www.openstreetmap.org/${r.osmType}/${r.osmId}`
+                    : phoneState.sourceUrl
+
+                  return (
+                    <div
+                      key={r.id}
+                      className={`result-card ${selectedResult?.id === r.id ? 'selected' : ''}`}
+                      onClick={() => {
+                        if (r.hasCoordinates) setSelectedResult(r)
+                      }}
+                    >
+                      <div className="result-header">
+                        <h3>{r.name}</h3>
+                        <span className="result-source">{r.source}</span>
+                      </div>
+                      <p className="result-address">📍 {r.address}</p>
+
+                      {phoneState.status === 'found' ? (
+                        <div className="result-phone-block">
+                          <p className="result-phone result-phone--found">
+                            <a
+                              className="result-phone-link"
+                              href={`tel:${phoneState.phoneHref}`}
+                              onClick={(event) => event.stopPropagation()}
+                            >
+                              📞 {phoneState.phone}
+                            </a>
+                          </p>
+                          {phoneSourceUrl ? (
+                            <a
+                              className="phone-source"
+                              href={phoneSourceUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              onClick={(event) => event.stopPropagation()}
+                            >
+                              Fuente: {phoneState.phoneSource}
+                            </a>
+                          ) : (
+                            <span className="phone-source">Fuente: {phoneState.phoneSource}</span>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="result-phone-block">
+                          <p className="result-phone result-phone--missing">📞 Teléfono no disponible</p>
+                          {phoneState.status === 'loading' && (
+                            <span className="phone-lookup-note">Buscando teléfono…</span>
+                          )}
+                          {phoneState.status === 'blocked' && (
+                            <span className="phone-lookup-note">La web oficial bloquea la consulta desde el navegador.</span>
+                          )}
+                          {phoneState.status === 'timeout' && (
+                            <span className="phone-lookup-note">La web oficial no respondió a tiempo.</span>
+                          )}
+                          {phoneState.status === 'not-found' && (
+                            <span className="phone-lookup-note">No se encontró un teléfono verificable.</span>
+                          )}
+                          {phoneState.status === 'http-error' && (
+                            <span className="phone-lookup-note">No se pudo acceder a la web oficial.</span>
+                          )}
+                          {phoneState.status === 'not-html' && (
+                            <span className="phone-lookup-note">La web oficial no devolvió una página consultable.</span>
+                          )}
+                          {phoneState.status === 'error' && (
+                            <span className="phone-lookup-note">No se pudo completar la búsqueda del teléfono.</span>
+                          )}
+                          {hasWebsite && phoneState.status !== 'loading' && (
+                            <button
+                              className="phone-lookup-btn"
+                              onClick={(event) => {
+                                event.stopPropagation()
+                                handlePhoneLookup(r)
+                              }}
+                            >
+                              Buscar en su web
+                            </button>
+                          )}
+                        </div>
+                      )}
+
+                      {hasWebsite ? (
+                        <p className="result-website">
+                          🌐{' '}
+                          <a
+                            href={websiteUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            onClick={(event) => event.stopPropagation()}
+                          >
+                            {r.website.replace(/^https?:\/\//i, '').replace(/\/$/, '')}
+                          </a>
+                        </p>
+                      ) : (
+                        <p className="result-website">🌐 Web no disponible</p>
+                      )}
+
+                      <p className="result-animals">🐾 Animales: {r.animals.length > 0 ? r.animals.join(', ') : 'No especificado'}</p>
+
+                      <div className="result-hours-block">
+                        <p className="result-hours">
+                          🕒 Horario: {r.openingHours || 'No disponible en OpenStreetMap'}
+                        </p>
+                        <p className={`stay-badge stay-badge--${r.stayOpening?.status || 'unknown'}`}>
+                          {r.stayOpening?.status === 'open'
+                            ? r.stayOpening.label
+                            : 'Sin datos de horario: confirma con la residencia'}
+                        </p>
+                      </div>
+
+                      <p className="result-price">
+                        💶 {r.price ? (
+                          <>
+                            Precio: <strong>{r.price}</strong>{' '}
+                            <span className="price-source">Fuente: {r.priceSource}</span>
+                          </>
+                        ) : (
+                          'Consultar precio'
+                        )}
+                      </p>
+
+                      {r.hasCoordinates ? (
+                        <>
+                          <p className="result-coords">🗺️ {r.lat.toFixed(4)}, {r.lon.toFixed(4)}</p>
+                          <p className="result-distance">
+                            📏 {r.distanceKm != null
+                              ? `${r.distanceKm.toFixed(1)} km del centro de búsqueda`
+                              : `Radio búsqueda: ${formData.location.radio} km`}
+                          </p>
+                        </>
+                      ) : (
+                        <p className="result-coords">🗺️ Coordenadas: No disponibles</p>
+                      )}
+                      <p className="result-osm">ID OSM: {r.osmType}/{r.osmId}</p>
                     </div>
-                    <p className="result-address">📍 {r.address}</p>
-                    <p className="result-phone">📞 {r.phone}</p>
-                    <p className="result-website">🌐 {r.website}</p>
-                    <p className="result-animals">🐾 Animales: {r.animals.length > 0 ? r.animals.join(', ') : 'No especificado'}</p>
-                    {r.hasCoordinates ? (
-                      <>
-                        <p className="result-coords">🗺️ {r.lat.toFixed(4)}, {r.lon.toFixed(4)}</p>
-                        <p className="result-distance">📏 Radio búsqueda: {formData.location.radio} km</p>
-                      </>
-                    ) : (
-                      <p className="result-coords">🗺️ Coordenadas: No disponibles</p>
-                    )}
-                    <p className="result-osm">ID OSM: {r.osmType}/{r.osmId}</p>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
-              <button className="btn-primary" onClick={() => { setSubmitted(false); setCurrentStep(1); setSearchResults([]); setSelectedResult(null); setSearchCenter(null) }}>Volver al inicio</button>
+
+              {phoneLookupTargets.length > 0 && (
+                <>
+                  <button
+                    className="btn-secondary phone-batch-btn"
+                    onClick={handlePhoneBatch}
+                    disabled={phoneBatchLoading}
+                  >
+                    {phoneBatchLoading
+                      ? 'Consultando webs oficiales…'
+                      : `Buscar teléfonos en webs oficiales (${phoneLookupTargets.length})`}
+                  </button>
+                  <p className="phone-disclaimer">
+                    La consulta a webs oficiales solo se realiza cuando la pides. Muchas webs bloquean
+                    el acceso desde el navegador; en ese caso no se muestra ningún número inventado.
+                  </p>
+                </>
+              )}
+
+              <button className="btn-primary" onClick={() => { setSubmitted(false); setCurrentStep(1); setSearchResults([]); setSelectedResult(null); setSearchCenter(null); setPhoneLookups({}); setHiddenClosedCount(0) }}>Volver al inicio</button>
             </div>
           </div>
         </div>
@@ -245,10 +478,8 @@ export default function SearchForm({ onClose }) {
         <div className="search-form-content">
           {currentStep === 1 && <StepLocation updateField={updateField} formData={formData} errors={errors} />}
           {currentStep === 2 && <StepDog updateField={updateField} formData={formData} errors={errors} />}
-          {currentStep === 3 && <StepNeeds updateField={updateField} formData={formData} errors={errors} />}
-          {currentStep === 4 && <StepStay updateField={updateField} formData={formData} errors={errors} />}
-          {currentStep === 5 && <StepPreferences togglePreference={togglePreference} formData={formData} />}
-          {currentStep === 6 && <StepSummary formData={formData} />}
+          {currentStep === 3 && <StepStay updateField={updateField} formData={formData} errors={errors} />}
+          {currentStep === 4 && <StepSummary formData={formData} />}
         </div>
 
         <div className="search-form-actions">
@@ -323,32 +554,13 @@ function StepDog({ updateField, formData, errors }) {
     </div>
   )
 }
-function StepNeeds({ updateField, formData, errors }) {
-  return (
-    <div className="form-step">
-      <h3>3. Necesidades de tu perro</h3>
-      <div className="form-grid">
-        <div className="form-group">
-          <label>Sociabilidad</label>
-          <select value={formData.needs.sociabilidad} onChange={e => updateField('needs', 'sociabilidad', e.target.value)} aria-invalid={Boolean(errors.sociabilidad)}><option value="">Seleccionar</option><option>Muy sociable</option><option>Sociable</option><option>Tímido</option><option>Prefiere estar solo</option></select>
-          <FieldError message={errors.sociabilidad} />
-        </div>
-        <div className="form-group">
-          <label>Actividad</label>
-          <select value={formData.needs.actividad} onChange={e => updateField('needs', 'actividad', e.target.value)} aria-invalid={Boolean(errors.actividad)}><option value="">Seleccionar</option><option>Bajo</option><option>Medio</option><option>Alto</option></select>
-          <FieldError message={errors.actividad} />
-        </div>
-        <div className="form-group"><label>Necesidades especiales</label><textarea value={formData.needs.necesidadesEspeciales} onChange={e => updateField('needs', 'necesidadesEspeciales', e.target.value)} placeholder="Medicamentos, alergias..." /></div>
-        <div className="form-group"><label>Cuidados específicos</label><textarea value={formData.needs.cuidados} onChange={e => updateField('needs', 'cuidados', e.target.value)} placeholder="Dietas, cepillado..." /></div>
-      </div>
-    </div>
-  )
-}
-
 function StepStay({ updateField, formData, errors }) {
   return (
     <div className="form-step">
-      <h3>4. Detalles de la estancia</h3>
+      <h3>3. Fechas de la estancia</h3>
+      <p className="step-hint">
+        Con estas fechas comprobaremos qué residencias están abiertas según su horario.
+      </p>
       <div className="form-grid">
         <div className="form-group">
           <label>Fecha entrada</label>
@@ -360,37 +572,27 @@ function StepStay({ updateField, formData, errors }) {
           <input type="date" value={formData.stay.fechaSalida} onChange={e => updateField('stay', 'fechaSalida', e.target.value)} aria-invalid={Boolean(errors.fechaSalida)} />
           <FieldError message={errors.fechaSalida} />
         </div>
-        <div className="form-group">
-          <label>Presupuesto máximo/día (€)</label>
-          <input type="number" min="0" value={formData.stay.presupuesto} onChange={e => updateField('stay', 'presupuesto', e.target.value)} aria-invalid={Boolean(errors.presupuesto)} />
-          <FieldError message={errors.presupuesto} />
-        </div>
-      </div>
-    </div>
-  )
-}
-function StepPreferences({ togglePreference, formData }) {
-  return (
-    <div className="form-step">
-      <h3>5. Servicios que te interesan</h3>
-      <p className="step-hint">Opcional - selecciona todos los que desees</p>
-      <div className="checkbox-grid">
-        {SERVICIOS.map(s => <label key={s} className="checkbox-label"><input type="checkbox" checked={formData.preferences.includes(s)} onChange={() => togglePreference(s)} /> {s}</label>)}
       </div>
     </div>
   )
 }
 
 function StepSummary({ formData }) {
+  const noches = (() => {
+    if (!formData.stay.fechaEntrada || !formData.stay.fechaSalida) return null
+    const entry = new Date(`${formData.stay.fechaEntrada}T12:00:00`)
+    const exit = new Date(`${formData.stay.fechaSalida}T12:00:00`)
+    const diff = Math.round((exit - entry) / (1000 * 60 * 60 * 24))
+    return diff > 0 ? diff : 0
+  })()
+
   return (
     <div className="form-step summary-step">
-      <h3>6. Revisa tus datos</h3>
+      <h3>4. Revisa tus datos</h3>
       <div className="summary-grid">
         <div className="summary-card"><h4>Ubicación</h4><p><strong>Localidad:</strong> {formData.location.ciudad || '—'}</p><p><strong>Radio:</strong> {formData.location.radio} km</p></div>
         <div className="summary-card"><h4>Tu perro</h4><p><strong>Nombre:</strong> {formData.dog.nombre || '—'}</p><p><strong>Raza:</strong> {formData.dog.raza || '—'}</p><p><strong>Edad:</strong> {formData.dog.edad} años</p><p><strong>Peso:</strong> {formData.dog.peso} kg</p><p><strong>Tamaño:</strong> {formData.dog.tamano || '—'}</p><p><strong>Carácter:</strong> {formData.dog.caracter || '—'}</p></div>
-        <div className="summary-card"><h4>Necesidades</h4><p><strong>Sociabilidad:</strong> {formData.needs.sociabilidad || '—'}</p><p><strong>Actividad:</strong> {formData.needs.actividad || '—'}</p><p><strong>Especiales:</strong> {formData.needs.necesidadesEspeciales || '—'}</p><p><strong>Cuidados:</strong> {formData.needs.cuidados || '—'}</p></div>
-        <div className="summary-card"><h4>Estancia</h4><p><strong>Entrada:</strong> {formData.stay.fechaEntrada || '—'}</p><p><strong>Salida:</strong> {formData.stay.fechaSalida || '—'}</p><p><strong>Presupuesto:</strong> {formData.stay.presupuesto} €/día</p></div>
-        <div className="summary-card"><h4>Preferencias</h4><p>{formData.preferences.length > 0 ? formData.preferences.join(', ') : 'Ninguna'}</p></div>
+        <div className="summary-card"><h4>Estancia</h4><p><strong>Entrada:</strong> {formatDateEs(formData.stay.fechaEntrada)}</p><p><strong>Salida:</strong> {formatDateEs(formData.stay.fechaSalida)}</p>{noches != null && <p><strong>Duración:</strong> {noches} noche(s)</p>}</div>
       </div>
     </div>
   )

@@ -2,6 +2,8 @@
 // Servicios gratuitos: Nominatim (geocodificación) y Overpass API (búsqueda de establecimientos)
 // Licencia: OpenStreetMap ODbL — se requiere atribución visible
 
+import { extractOsmPhone, extractPrice } from './phoneService'
+
 const NOMINATIM_BASE = 'https://nominatim.openstreetmap.org/search'
 const OVERPASS_BASE = 'https://overpass-api.de/api/interpreter'
 
@@ -121,36 +123,45 @@ export async function searchAnimalBoarding(lat, lon, radiusKm) {
     const data = await response.json()
     const elements = data.elements || []
 
-    const results = elements.map((el) => {
-      const tags = el.tags || {}
-      const animals = tags['animal_boarding']
-        ? tags['animal_boarding'].split(';').map((a) => a.trim())
-        : []
+    const results = elements
+      // Solo mostramos ubicaciones con nombre: las que no tienen `name` en OSM
+      // no son útiles para el usuario y se descartan.
+      .filter((el) => (el.tags?.name || '').trim().length > 0)
+      .map((el) => {
+        const tags = el.tags || {}
+        const animals = tags['animal_boarding']
+          ? tags['animal_boarding'].split(';').map((a) => a.trim())
+          : []
 
-      const addressParts = []
-      if (tags['addr:housenumber']) addressParts.push(tags['addr:housenumber'])
-      if (tags['addr:street']) addressParts.push(tags['addr:street'])
-      if (tags['addr:postcode']) addressParts.push(tags['addr:postcode'])
-      if (tags['addr:city']) addressParts.push(tags['addr:city'])
+        const addressParts = []
+        if (tags['addr:housenumber']) addressParts.push(tags['addr:housenumber'])
+        if (tags['addr:street']) addressParts.push(tags['addr:street'])
+        if (tags['addr:postcode']) addressParts.push(tags['addr:postcode'])
+        if (tags['addr:city']) addressParts.push(tags['addr:city'])
 
-      const latCenter = el.lat || (el.center && el.center.lat)
-      const lonCenter = el.lon || (el.center && el.center.lon)
+        const latCenter = el.lat || (el.center && el.center.lat)
+        const lonCenter = el.lon || (el.center && el.center.lon)
+        const phoneData = extractOsmPhone(tags)
+        const priceData = extractPrice(tags)
 
-      return {
-        id: `${el.type}/${el.id}`,
-        type: el.type,
-        name: tags.name || 'Sin nombre',
-        address: addressParts.length > 0 ? addressParts.join(', ') : 'No disponible',
-        phone: tags['contact:phone'] || tags.phone || 'No disponible',
-        website: tags['contact:website'] || tags.website || 'No disponible',
-        lat: latCenter ? parseFloat(latCenter) : null,
-        lon: lonCenter ? parseFloat(lonCenter) : null,
-        animals: animals.filter(Boolean),
-        osmType: el.type,
-        osmId: el.id,
-        source: 'OpenStreetMap (ODbL)',
-      }
-    })
+        return {
+          id: `${el.type}/${el.id}`,
+          type: el.type,
+          name: tags.name.trim(),
+          address: addressParts.length > 0 ? addressParts.join(', ') : 'No disponible',
+          ...phoneData,
+          website: tags['contact:website'] || tags.website || 'No disponible',
+          wikidata: tags.wikidata || null,
+          openingHours: tags.opening_hours || null,
+          ...priceData,
+          lat: latCenter ? parseFloat(latCenter) : null,
+          lon: lonCenter ? parseFloat(lonCenter) : null,
+          animals: animals.filter(Boolean),
+          osmType: el.type,
+          osmId: el.id,
+          source: 'OpenStreetMap (ODbL)',
+        }
+      })
 
     cacheSet(cacheKey, results)
     return results
@@ -161,24 +172,59 @@ export async function searchAnimalBoarding(lat, lon, radiusKm) {
 }
 
 /**
+ * Distancia aproximada en km entre dos coordenadas (fórmula de Haversine).
+ */
+function haversineKm(lat1, lon1, lat2, lon2) {
+  const earthRadiusKm = 6371
+  const toRadians = (degrees) => (degrees * Math.PI) / 180
+  const dLat = toRadians(lat2 - lat1)
+  const dLon = toRadians(lon2 - lon1)
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRadians(lat1)) * Math.cos(toRadians(lat2)) * Math.sin(dLon / 2) ** 2
+  return earthRadiusKm * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+}
+
+/**
  * Normaliza los resultados de Overpass para el futuro mapa y la UI de DOGSTYLE.
  * @param {Array} results - Resultados crudos de Overpass
- * @returns {Array} Resultados normalizados listos para mostrar
+ * @param {{lat: number, lon: number}|null} center - Punto de búsqueda para calcular distancia
+ * @returns {Array} Resultados normalizados listos para mostrar, ordenados por cercanía
  */
-export function normalizeResults(results) {
-  return results.map((r) => ({
-    id: r.id,
-    name: r.name,
-    address: r.address,
-    phone: r.phone,
-    website: r.website,
-    lat: r.lat,
-    lon: r.lon,
-    animals: r.animals,
-    osmType: r.osmType,
-    osmId: r.osmId,
-    source: r.source,
-    hasCoordinates: r.lat != null && r.lon != null,
-    verified: true,
-  }))
+export function normalizeResults(results, center = null) {
+  return results
+    // Refuerzo: nunca mostrar establecimientos sin nombre.
+    .filter((r) => (r.name || '').trim().length > 0)
+    .map((r) => ({
+      id: r.id,
+      name: r.name.trim(),
+      address: r.address,
+      phone: r.phone || null,
+      phoneHref: r.phoneHref || null,
+      phoneSource: r.phoneSource || null,
+      phoneTag: r.phoneTag || null,
+      website: r.website || 'No disponible',
+      wikidata: r.wikidata || null,
+      openingHours: r.openingHours || null,
+      price: r.price || null,
+      priceSource: r.priceSource || null,
+      priceTag: r.priceTag || null,
+      lat: r.lat,
+      lon: r.lon,
+      distanceKm:
+        center && r.lat != null && r.lon != null
+          ? haversineKm(center.lat, center.lon, r.lat, r.lon)
+          : null,
+      animals: r.animals,
+      osmType: r.osmType,
+      osmId: r.osmId,
+      source: r.source,
+      hasCoordinates: r.lat != null && r.lon != null,
+      verified: true,
+    }))
+    .sort((a, b) => {
+      const distanceA = a.distanceKm ?? Number.POSITIVE_INFINITY
+      const distanceB = b.distanceKm ?? Number.POSITIVE_INFINITY
+      return distanceA - distanceB
+    })
 }

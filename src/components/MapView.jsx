@@ -88,7 +88,17 @@ export default function MapView({ results, centerPoint, radiusKm, onSelectResult
                   <br />
                   {result.address}
                   <br />
-                  {result.phone}
+                  {result.phone ? (
+                    <a href={`tel:${result.phoneHref || result.phone}`}>{result.phone}</a>
+                  ) : (
+                    'Teléfono no disponible'
+                  )}
+                  <br />
+                  {result.price ? `Precio: ${result.price}` : 'Consultar precio'}
+                  <br />
+                  {result.openingHours ? `Horario: ${result.openingHours}` : 'Horario no disponible'}
+                  <br />
+                  {result.stayOpening?.label}
                   <br />
                   <small>ID OSM: {result.osmType}/{result.osmId}</small>
                 </div>

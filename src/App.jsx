@@ -34,7 +34,7 @@ const STEPS = [
     image: stepDog,
     alt: 'Retrato de un perro',
     title: 'Cuéntanos sobre tu perro',
-    text: 'Describe su raza, edad, tamaño, carácter y necesidades especiales, así como las fechas y el presupuesto de la estancia.',
+    text: 'Describe su raza, edad, tamaño y carácter, e indica las fechas de la estancia para comprobar qué residencias están abiertas según su horario.',
   },
   {
     image: stepResidence,
@@ -49,7 +49,7 @@ const BENEFITS = [
     image: benefitPlay,
     alt: 'Perros jugando juntos',
     title: 'Recomendaciones personalizadas',
-    text: 'DOGSTYLE tiene en cuenta las características y necesidades de tu perro para ayudarte a elegir la residencia más adecuada.',
+    text: 'DOGSTYLE tiene en cuenta las características de tu perro y las fechas de la estancia para ayudarte a elegir la residencia más adecuada.',
   },
   {
     image: benefitWalk,
@@ -189,7 +189,7 @@ function App() {
                   <span>Hasta 100 km</span>
                 </li>
                 <li>
-                  <strong>6 pasos</strong>
+                  <strong>4 pasos</strong>
                   <span>100 % personalizado</span>
                 </li>
               </ul>
@@ -345,8 +345,8 @@ function App() {
                   <div>
                     <h3>Pensado para cada perro</h3>
                     <p>
-                      El formulario recoge su tamaño, carácter, necesidades y las fechas
-                      de la estancia para que encuentres la opción que mejor encaje.
+                      El formulario recoge su tamaño, carácter y las fechas de la estancia para
+                      que encuentres la opción que mejor encaje.
                     </p>
                   </div>
                 </div>
@@ -426,8 +426,9 @@ function App() {
             <h3>Datos abiertos</h3>
             <p>
               Las residencias mostradas proceden de OpenStreetMap y se localizan en un
-              radio real alrededor de la zona que elijas. No inventamos establecimientos
-              ni valoraciones.
+              radio real alrededor de la zona que elijas. Los teléfonos se muestran solo
+              cuando constan en OpenStreetMap, Wikidata o la web oficial del establecimiento.
+              No inventamos establecimientos, teléfonos ni valoraciones.
             </p>
           </div>
         </div>
