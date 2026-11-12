@@ -14,6 +14,30 @@ const STEPS = [
 const RADIOS = [5, 10, 20, 30, 50, 100]
 
 const withProtocol = (value) => (/^https?:\/\//i.test(value) ? value : `https://${value}`)
+
+// Enlaces universales de Google Maps: no necesitan API key ni cuenta de Google.
+const googleMapsPlaceUrl = (result) => {
+  if (result.lat != null && result.lon != null) {
+    return `https://www.google.com/maps/search/?api=1&query=${result.lat.toFixed(6)},${result.lon.toFixed(6)}`
+  }
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${result.name} ${result.address}`)}`
+}
+
+const googleMapsDirectionsUrl = (result) => {
+  if (result.lat != null && result.lon != null) {
+    return `https://www.google.com/maps/dir/?api=1&destination=${result.lat.toFixed(6)},${result.lon.toFixed(6)}`
+  }
+  return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(`${result.name} ${result.address}`)}`
+}
+
+// Búsqueda de residencias caninas en la zona, para cuando OSM no tiene datos.
+const googleMapsAreaUrl = (center, ciudad) => {
+  if (center?.lat != null && center?.lon != null) {
+    return `https://www.google.com/maps/search/residencias+caninas/@${center.lat.toFixed(6)},${center.lon.toFixed(6)},13z`
+  }
+  return `https://www.google.com/maps/search/${encodeURIComponent(`residencias caninas ${ciudad || ''}`.trim())}`
+}
+
 const TAMAÑOS = ['Pequeño', 'Mediano', 'Grande', 'Muy grande']
 const CARACTERES = ['Tranquilo', 'Juguetón', 'Nervioso', 'Sociable', 'Independiente']
 
@@ -212,6 +236,14 @@ export default function SearchForm({ onClose }) {
           <div className="success-card">
             <h2>No se pudieron encontrar resultados</h2>
             <p>{searchError}</p>
+            <a
+              className="btn-secondary"
+              href={googleMapsAreaUrl(searchCenter, formData.location.ciudad)}
+              target="_blank"
+              rel="noreferrer"
+            >
+              🗺️ Buscar residencias en Google Maps
+            </a>
             <button className="btn-primary" onClick={() => { setSubmitted(false); setSearchError(null); setCurrentStep(1) }}>Volver a intentar</button>
           </div>
         </section>
@@ -239,6 +271,14 @@ export default function SearchForm({ onClose }) {
                 <p>Esto puede deberse a que aún no hay residencias caninas mapeadas en OpenStreetMap para esa zona.</p>
               </>
             )}
+            <a
+              className="btn-secondary"
+              href={googleMapsAreaUrl(searchCenter, formData.location.ciudad)}
+              target="_blank"
+              rel="noreferrer"
+            >
+              🗺️ Buscar residencias en Google Maps
+            </a>
             <button className="btn-primary" onClick={() => { setSubmitted(false); setCurrentStep(1); setHiddenClosedCount(0) }}>Volver a intentar</button>
           </div>
         </section>
@@ -427,6 +467,25 @@ export default function SearchForm({ onClose }) {
                         <p className="result-coords">🗺️ Coordenadas: No disponibles</p>
                       )}
                       <p className="result-osm">ID OSM: {r.osmType}/{r.osmId}</p>
+                      <p className="result-maps-links">
+                        <a
+                          href={googleMapsPlaceUrl(r)}
+                          target="_blank"
+                          rel="noreferrer"
+                          onClick={(event) => event.stopPropagation()}
+                        >
+                          🗺️ Ver en Google Maps
+                        </a>
+                        <span aria-hidden="true">·</span>
+                        <a
+                          href={googleMapsDirectionsUrl(r)}
+                          target="_blank"
+                          rel="noreferrer"
+                          onClick={(event) => event.stopPropagation()}
+                        >
+                          🧭 Cómo llegar
+                        </a>
+                      </p>
                     </div>
                   )
                 })}
@@ -449,6 +508,15 @@ export default function SearchForm({ onClose }) {
                   </p>
                 </>
               )}
+
+              <a
+                className="btn-secondary google-maps-btn"
+                href={googleMapsAreaUrl(searchCenter, formData.location.ciudad)}
+                target="_blank"
+                rel="noreferrer"
+              >
+                🗺️ Buscar más residencias en Google Maps
+              </a>
 
               <button className="btn-primary" onClick={() => { setSubmitted(false); setCurrentStep(1); setSearchResults([]); setSelectedResult(null); setSearchCenter(null); setPhoneLookups({}); setHiddenClosedCount(0) }}>Volver al inicio</button>
             </div>

@@ -1803,6 +1803,39 @@ a.phone-source:hover {
   color: var(--ink-muted);
 }
 
+.result-maps-links {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  font-size: 12px;
+}
+
+.result-maps-links a {
+  color: var(--olive);
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.result-maps-links a:hover {
+  color: var(--sage-deep);
+}
+
+.result-maps-links span {
+  color: var(--ink-muted);
+}
+
+.google-maps-btn {
+  width: 100%;
+  margin-bottom: 10px;
+}
+
+.success-card .btn-secondary {
+  margin-bottom: 10px;
+}
+
 .list-panel > .btn-primary {
   width: 100%;
 }
