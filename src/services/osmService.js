@@ -3,19 +3,12 @@
 // Licencia: OpenStreetMap ODbL — se requiere atribución visible
 
 import { extractOsmPhone, extractPrice } from './phoneService.js'
+import { buildAnimalBoardingQuery, fetchOverpassElements } from './overpass.js'
 
 const NOMINATIM_BASE = 'https://nominatim.openstreetmap.org/search'
-// Varios espejos de Overpass: si uno está caído o saturado, se prueban los demás.
-// El orden se reordena para empezar por el último que funcionó.
-const OVERPASS_ENDPOINTS = [
-  'https://overpass-api.de/api/interpreter',
-  'https://overpass.openstreetmap.fr/api/interpreter',
-  'https://overpass.kumi.systems/api/interpreter',
-  'https://overpass.private.coffee/api/interpreter',
-]
-
-const OVERPASS_TIMEOUT_MS = 10000
-let preferredEndpoint = 0
+// Proxy propio (solo existe cuando la app se sirve desde Vercel).
+// Sirve como último respaldo si el navegador no puede llegar a ningún espejo.
+const BOARDING_PROXY = '/api/boarding'
 
 // Caché simple en memoria para evitar consultas innecesarias
 const cache = new Map()
@@ -80,88 +73,29 @@ export async function geocodeLocation(query) {
 }
 
 /**
- * Construye una consulta Overpass QL para buscar residencias caninas (amenity=animal_boarding)
- * dentro de un radio dado alrededor de unas coordenadas.
- * @param {number} lat - Latitud
- * @param {number} lon - Longitud
- * @param {number} radiusKm - Radio en kilómetros
- * @returns {string} Consulta Overpass QL
+ * Último respaldo: pide a nuestro proxy de Vercel que consulte Overpass desde
+ * el servidor. Así la búsqueda funciona aunque la red del usuario bloquee los
+ * espejos. En otros hostings (GitHub Pages) este endpoint no existe.
+ * @returns {Promise<Array|null>} Elementos o null si el proxy no está disponible
  */
-function buildOverpassQuery(lat, lon, radiusKm) {
-  const radiusMeters = radiusKm * 1000
-  return `
-[out:json][timeout:25];
-(
-  node["amenity"="animal_boarding"](around:${radiusMeters},${lat},${lon});
-  way["amenity"="animal_boarding"](around:${radiusMeters},${lat},${lon});
-  relation["amenity"="animal_boarding"](around:${radiusMeters},${lat},${lon});
-);
-out center tags;
-`
-}
+async function fetchFromBoardingProxy(lat, lon, radiusKm) {
+  try {
+    const params = new URLSearchParams({
+      lat: String(lat),
+      lon: String(lon),
+      radius: String(radiusKm),
+    })
+    const response = await fetch(`${BOARDING_PROXY}?${params.toString()}`)
 
-/**
- * Envía la consulta a los espejos de Overpass hasta obtener una respuesta válida.
- * Si todos fallan, lanza un error identificable para que la UI muestre un aviso claro.
- * @param {string} query - Consulta Overpass QL
- * @returns {Promise<Array>} Elementos devueltos por Overpass
- */
-async function fetchOverpassElements(query) {
-  const orderedEndpoints = OVERPASS_ENDPOINTS.map(
-    (_, offset) => OVERPASS_ENDPOINTS[(preferredEndpoint + offset) % OVERPASS_ENDPOINTS.length],
-  )
+    if (!response.ok) return null
 
-  let lastError = null
-  let sawEmptyResult = false
+    const data = await response.json()
+    if (!Array.isArray(data?.elements)) return null
 
-  for (const endpoint of orderedEndpoints) {
-    const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), OVERPASS_TIMEOUT_MS)
-
-    try {
-      const response = await fetch(endpoint, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-          'User-Agent': 'DOGSTYLE/1.0 (contacto@dogstyle.es)',
-        },
-        body: `data=${encodeURIComponent(query)}`,
-        signal: controller.signal,
-      })
-
-      if (!response.ok) {
-        lastError = new Error(`Overpass ${endpoint} respondió ${response.status}`)
-        continue
-      }
-
-      const data = await response.json()
-      if (!Array.isArray(data?.elements)) {
-        lastError = new Error(`Overpass ${endpoint} devolvió una respuesta no válida`)
-        continue
-      }
-
-      if (data.elements.length === 0) {
-        // Algunos espejos tienen cobertura parcial: probamos el siguiente.
-        sawEmptyResult = true
-        continue
-      }
-
-      preferredEndpoint = OVERPASS_ENDPOINTS.indexOf(endpoint)
-      return data.elements
-    } catch (error) {
-      lastError = error
-      console.warn(`Overpass falló en ${endpoint}:`, error.message)
-    } finally {
-      clearTimeout(timeout)
-    }
+    return data.elements
+  } catch {
+    return null
   }
-
-  if (sawEmptyResult) return []
-
-  console.error('Ningún espejo de Overpass respondió:', lastError)
-  const error = new Error('Los servidores de OpenStreetMap no responden en este momento.')
-  error.code = 'OVERPASS_UNAVAILABLE'
-  throw error
 }
 
 /**
@@ -178,8 +112,19 @@ export async function searchAnimalBoarding(lat, lon, radiusKm) {
   const cached = cacheGet(cacheKey)
   if (cached) return cached
 
-  const query = buildOverpassQuery(lat, lon, radiusKm)
-  const elements = await fetchOverpassElements(query)
+  const query = buildAnimalBoardingQuery(lat, lon, radiusKm)
+
+  let elements
+  try {
+    elements = await fetchOverpassElements(query)
+  } catch (error) {
+    if (error?.code !== 'OVERPASS_UNAVAILABLE') throw error
+
+    // Respaldo final: proxy serverless propio.
+    const proxied = await fetchFromBoardingProxy(lat, lon, radiusKm)
+    if (proxied === null) throw error
+    elements = proxied
+  }
 
   const results = elements
     // Solo mostramos ubicaciones con nombre: las que no tienen `name` en OSM
