@@ -6,9 +6,9 @@ import { extractOsmPhone, extractPrice } from './phoneService.js'
 import { buildAnimalBoardingQuery, fetchOverpassElements } from './overpass.js'
 
 const NOMINATIM_BASE = 'https://nominatim.openstreetmap.org/search'
-// Proxy propio (solo existe cuando la app se sirve desde Vercel).
-// Sirve como último respaldo si el navegador no puede llegar a ningún espejo.
-const BOARDING_PROXY = '/api/boarding'
+// Proxies propios (solo existen cuando la app se sirve desde Vercel).
+const BOARDING_PROXY = '/api/boarding' // respaldo OSM/Overpass
+const PLACES_PROXY = '/api/places' // fuente adicional (Apify/Google Maps), si está configurada
 
 // Caché simple en memoria para evitar consultas innecesarias
 const cache = new Map()
@@ -190,6 +190,71 @@ export async function searchAnimalBoarding(lat, lon, radiusKm) {
 
   cacheSet(cacheKey, results)
   return results
+}
+
+/**
+ * Fuente adicional opcional: consulta el proxy de Apify/Google Maps si está
+ * configurado en Vercel (APIFY_TOKEN). Devuelve [] si no está disponible o falla.
+ */
+export async function searchPlacesProxy(query, lat, lon, radiusKm) {
+  if (!query) return []
+
+  const cacheKey = `places:${query.trim().toLowerCase()}:${lat?.toFixed?.(4)},${lon?.toFixed?.(4)},${radiusKm}`
+  const cached = cacheGet(cacheKey)
+  if (cached) return cached
+
+  try {
+    const params = new URLSearchParams({ q: query.trim(), radius: String(radiusKm ?? '') })
+    if (lat != null) params.set('lat', String(lat))
+    if (lon != null) params.set('lon', String(lon))
+
+    const response = await fetch(`${PLACES_PROXY}?${params.toString()}`)
+    if (!response.ok) return []
+
+    const data = await response.json()
+    const elements = Array.isArray(data?.elements) ? data.elements : []
+    cacheSet(cacheKey, elements)
+    return elements
+  } catch {
+    return []
+  }
+}
+
+function normalizeName(value) {
+  return (value || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+}
+
+/**
+ * Mezcla resultados de distintas fuentes eliminando duplicados obvios
+ * (mismo nombre muy similar y a poca distancia).
+ */
+export function mergeResults(...groups) {
+  const merged = []
+  for (const group of groups) {
+    for (const item of group || []) {
+      if (!item?.name) continue
+      const name = normalizeName(item.name)
+      const duplicate = merged.find((existing) => {
+        if (normalizeName(existing.name) !== name) return false
+        if (existing.lat == null || existing.lon == null || item.lat == null || item.lon == null) {
+          return true
+        }
+        return haversineKm(existing.lat, existing.lon, item.lat, item.lon) < 0.15
+      })
+      if (!duplicate) {
+        merged.push(item)
+      } else if ((!duplicate.phone || duplicate.phone === 'No disponible') && item.phone) {
+        // Completar datos faltantes con la otra fuente.
+        Object.assign(duplicate, { ...item, ...duplicate, phone: item.phone, phoneHref: item.phoneHref, phoneSource: item.phoneSource })
+      }
+    }
+  }
+  return merged
 }
 
 /**

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { geocodeLocation, searchAnimalBoarding, normalizeResults } from '../services/osmService'
+import { geocodeLocation, mergeResults, normalizeResults, searchAnimalBoarding, searchPlacesProxy } from '../services/osmService'
 import { evaluateStayOpeningHours } from '../services/openingHours'
 import { lookupAutomaticPhone, lookupPhoneOnDemand } from '../services/phoneService'
 import GoogleMapEmbed from './GoogleMapEmbed'
@@ -186,9 +186,22 @@ export default function SearchForm({ onClose }) {
 
       setSearchCenter(coords)
 
-      // 2. Buscar residencias caninas con Overpass API
-      const rawResults = await searchAnimalBoarding(coords.lat, coords.lon, formData.location.radio)
-      const normalized = normalizeResults(rawResults, coords)
+      // 2. Buscar residencias caninas en paralelo: OSM (Overpass/proxy) y,
+      // si está configurada en Vercel, una fuente adicional vía Apify/Google Maps.
+      const [osmSettled, placesSettled] = await Promise.allSettled([
+        searchAnimalBoarding(coords.lat, coords.lon, formData.location.radio),
+        searchPlacesProxy(query, coords.lat, coords.lon, formData.location.radio),
+      ])
+
+      const osmResults = osmSettled.status === 'fulfilled' ? osmSettled.value : []
+      const placeResults = placesSettled.status === 'fulfilled' ? placesSettled.value : []
+
+      if (osmSettled.status === 'rejected' && placeResults.length === 0) {
+        throw osmSettled.reason
+      }
+
+      const merged = mergeResults(osmResults, placeResults)
+      const normalized = normalizeResults(merged, coords)
 
       // 3. Comprobar el horario de cada residencia para las fechas elegidas.
       // Las que están cerradas en la entrada o la salida no se ofrecen.
@@ -224,7 +237,7 @@ export default function SearchForm({ onClose }) {
           <button className="search-form-close" onClick={onClose} aria-label="Cerrar">✕</button>
           <div className="success-card">
             <h2>Buscando residencias caninas...</h2>
-            <p>Consultando OpenStreetMap para encontrar establecimientos reales cerca de ti.</p>
+            <p>Consultando fuentes disponibles (OpenStreetMap y, si está configurada, Google Maps vía Apify) para encontrar establecimientos reales cerca de ti.</p>
             <div className="search-loading">Cargando…</div>
           </div>
         </section>
